@@ -743,7 +743,7 @@ CHAPTERS.forEach((ch, ci) => {
 });
 
 // ===== セーブ =====
-const DEF = {lv:1, exp:0, cleared:{}, beaten:{}, weak:{}, mode:'mix', kaki:'choice', style:'miracle', sound:true, bgm:true, total:0, intro:false,
+const DEF = {lv:1, exp:0, cleared:{}, beaten:{}, weak:{}, mode:'mix', kaki:'hand', style:'miracle', sound:true, bgm:true, total:0, intro:false,
   login:{last:'', streak:0, days:0}, daily:null, items:{potion:0, seed:0}, stamps:{},
   km:{}, shards:0, stickers:{}, rushBest:0, rushPlays:0, dojo:{days:{}, streak:0, last:'', open:false}};
 let S = JSON.parse(JSON.stringify(DEF));
@@ -757,6 +757,8 @@ let syncT = 0;
 function pushSave(force){ if (!SYNC) return; clearTimeout(syncT); syncT = setTimeout(() => {
   fetch('api/save' + (force ? '?force=1' : ''), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(S)}).catch(() => {});
 }, force ? 0 : 800); }
+// 「かき」は 手で書くモードを きほんにする（まえの セーブも 1回だけ きりかえ）
+if (!S.kakiHand) { S.kaki = 'hand'; S.kakiHand = true; try { localStorage.setItem('kanjimagical2', JSON.stringify(S)); } catch (e) {} }
 function save(force){ try { localStorage.setItem('kanjimagical2', JSON.stringify(S)); } catch (e) {} pushSave(force); }
 if (SYNC || PAGES) fetch(PAGES ? 'save.json' : 'api/save', {cache:'no-store'}).then(r => r.json()).then(d => {
   if (d && typeof d === 'object' && ahead(d, S)) {
