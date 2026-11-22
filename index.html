@@ -914,7 +914,75 @@ const VOICE = (() => {
   };
 })();
 
-// ===== BGM（WebAudioでその場で鳴らすファミコン風の曲）=====
+// ===== オーケストラの へんせい（曲ごとに つかう 楽器）=====
+// lead/lead2 = メロディーの 楽器、dbl = メロディーを かさねる 楽器 [楽器, オクターブ]、pad = 和音を のばす 楽器、
+// bass = 'synth'（シンセベース）か 'contrabass'、arp = 和音を ポロロンと ひく 楽器、ost = ボスの きざみ（チェロ）、
+// drums = 'modern'（シンセドラム）/ 'light'（ひかえめ）/ 'orch'（ティンパニ中心）/ 'none'
+const ORCH = {
+  map:      {lead: 'flute', lead2: 'orchestral_harp', pad: ['string_ensemble_1'], bass: 'contrabass', arp: 'orchestral_harp', drums: 'light'},
+  'b_c0-1': {lead: 'flute', dbl: ['acoustic_grand_piano', 1], pad: ['string_ensemble_1'], bass: 'synth', arp: 'orchestral_harp', drums: 'modern'},
+  'b_c1-1': {lead: 'acoustic_grand_piano', lead2: 'flute', pad: ['pad_2_warm'], bass: 'synth', arp: 'orchestral_harp', drums: 'modern'},
+  'b_c1-2': {lead: 'trumpet', lead2: 'acoustic_grand_piano', pad: ['string_ensemble_1'], bass: 'contrabass', drums: 'modern'},
+  'b_c2-1': {lead: 'flute', lead2: 'orchestral_harp', pad: ['string_ensemble_1'], bass: 'contrabass', arp: 'orchestral_harp', drums: 'light'},
+  'b_c2-2': {lead: 'trumpet', lead2: 'french_horn', pad: ['string_ensemble_1'], bass: 'contrabass', drums: 'orch'},
+  'b_c3-1': {lead: 'violin', lead2: 'orchestral_harp', pad: ['string_ensemble_1'], bass: 'synth', arp: 'acoustic_grand_piano', drums: 'modern'},
+  'b_c3-2': {lead: 'violin', dbl: ['flute', 1], pad: ['pad_2_warm'], bass: 'synth', arp: 'orchestral_harp', drums: 'modern'},
+  'b_c4-1': {lead: 'trumpet', lead2: 'flute', pad: ['string_ensemble_1'], bass: 'synth', drums: 'modern'},
+  'b_c4-2': {lead: 'flute', lead2: 'acoustic_grand_piano', pad: ['pad_2_warm'], bass: 'contrabass', arp: 'orchestral_harp', drums: 'light'},
+  'b_c5-1': {lead: 'violin', lead2: 'orchestral_harp', pad: ['string_ensemble_1'], bass: 'contrabass', arp: 'orchestral_harp', drums: 'light'},
+  'b_c5-2': {lead: 'french_horn', lead2: 'cello', pad: ['string_ensemble_1', 'choir_aahs'], bass: 'synth', ost: 'cello', drums: 'modern'},
+  'b_c6-1': {lead: 'acoustic_grand_piano', lead2: 'flute', pad: ['string_ensemble_1'], bass: 'synth', arp: 'orchestral_harp', drums: 'modern'},
+  'b_c6-2': {lead: 'flute', lead2: 'acoustic_grand_piano', pad: ['string_ensemble_1'], bass: 'contrabass', arp: 'orchestral_harp', drums: 'light'},
+  'b_c7-1': {lead: 'flute', lead2: 'orchestral_harp', pad: ['string_ensemble_1'], bass: 'contrabass', arp: 'orchestral_harp', drums: 'light'},
+  'b_c7-2': {lead: 'french_horn', lead2: 'violin', pad: ['string_ensemble_1'], bass: 'synth', ost: 'cello', drums: 'modern'},
+  b_weak:   {lead: 'acoustic_grand_piano', pad: ['string_ensemble_1'], bass: 'contrabass', arp: 'orchestral_harp', drums: 'light'},
+  dojo:     {lead: 'flute', lead2: 'orchestral_harp', pad: ['string_ensemble_1'], bass: 'contrabass', arp: 'orchestral_harp', drums: 'light'},
+  boss:     {lead: 'trumpet', dbl: ['violin', 1], lead2: 'french_horn', pad: ['string_ensemble_1'], bass: 'synth', ost: 'cello', drums: 'modern'},
+  boss_c4:  {lead: 'flute', dbl: ['violin', 0], lead2: 'french_horn', pad: ['string_ensemble_1'], bass: 'synth', ost: 'cello', drums: 'modern'},
+  boss_c5:  {lead: 'violin', dbl: ['trumpet', -1], lead2: 'french_horn', pad: ['string_ensemble_1', 'choir_aahs'], bass: 'synth', ost: 'cello', drums: 'modern'},
+  rival:    {lead: 'violin', dbl: ['flute', 1], lead2: 'acoustic_grand_piano', pad: ['string_ensemble_1'], bass: 'synth', ost: 'cello', drums: 'modern'},
+  noir:     {lead: 'french_horn', dbl: ['cello', -1], lead2: 'violin', pad: ['choir_aahs', 'string_ensemble_1'], bass: 'synth', ost: 'cello', drums: 'modern'},
+  omen:     {lead: 'church_organ', dbl: ['choir_aahs', 0], pad: ['choir_aahs', 'string_ensemble_1'], bass: 'contrabass', drums: 'orch'},
+  lastboss: {lead: 'church_organ', dbl: ['trumpet', 0], lead2: 'french_horn', pad: ['choir_aahs', 'string_ensemble_1'], bass: 'contrabass', ost: 'cello', drums: 'orch'},
+  fanfare:  {lead: 'trumpet', dbl: ['french_horn', -1], pad: ['string_ensemble_1'], bass: 'contrabass', drums: 'none'},
+  henshin:  {lead: 'violin', dbl: ['flute', 0], bass: 'contrabass', arp: 'orchestral_harp', drums: 'none'},
+  lose:     {lead: 'acoustic_grand_piano', bass: 'contrabass', drums: 'none'},
+};
+const orchOf = name => ORCH[name] || (name.startsWith('boss') ? ORCH.boss : name.startsWith('b_') ? ORCH['b_c3-1'] : ORCH.map);
+// 楽器ごとの 音の 大きさ
+const INST_VOL = {violin: .3, cello: .2, string_ensemble_1: .085, french_horn: .3, trumpet: .24, flute: .32, orchestral_harp: .2,
+  acoustic_grand_piano: .28, choir_aahs: .075, timpani: .55, contrabass: .4, pad_2_warm: .07, church_organ: .085};
+// ===== 楽器の 音（録音された 音を 高さを かえて 鳴らす）=====
+const INST = (() => {
+  const lib = {}, wait = {};
+  let index = null;
+  const idx = () => index || (index = fetch('assets/inst/index.json').then(r => r.json()).catch(() => ({})));
+  function load(name){
+    if (wait[name]) return wait[name];
+    return wait[name] = idx().then(ix => Promise.all((ix[name] || []).map(m => fetch(`assets/inst/${name}/${m}.m4a`).then(r => r.arrayBuffer())
+      .then(a => new Promise((ok, ng) => audio().ac.decodeAudioData(a, ok, ng))).then(b => [m, b]).catch(() => null))))
+      .then(list => { lib[name] = list.filter(Boolean).sort((a, b) => a[0] - b[0]); });
+  }
+  // m = 音の高さ（MIDI）、t = いつ、dur = 長さ、att = ふわっと 出だす 時間、rel = 音を 消すまでの 時間
+  function play(name, m, t, dur, vol, out, pan = 0, att = 0, rel = .35){
+    const L = lib[name]; if (!L || !L.length) return false;
+    let best = L[0]; for (const x of L) if (Math.abs(x[0] - m) < Math.abs(best[0] - m)) best = x;
+    const src = AC.createBufferSource(), g = AC.createGain(); src.buffer = best[1]; src.playbackRate.value = Math.pow(2, (m - best[0]) / 12);
+    const v = vol * (INST_VOL[name] || .25);
+    if (att) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + att); } else g.gain.setValueAtTime(v, t);
+    g.gain.setValueAtTime(v, t + Math.max(att, dur)); g.gain.linearRampToValueAtTime(0, t + Math.max(att, dur) + rel);
+    src.connect(g);
+    if (pan && AC.createStereoPanner) { const p = AC.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(out); } else g.connect(out);
+    src.start(t); src.stop(t + Math.max(att, dur) + rel + .05);
+    return true;
+  }
+  const need = name => { const o = orchOf(name); return [o.lead, o.lead2, o.dbl && o.dbl[0], ...(o.pad || []), o.bass === 'contrabass' && 'contrabass', o.arp, o.ost, o.drums === 'orch' || /T/.test(JSON.stringify(SONGS[name].drumBars || SONGS[name].drums || '')) ? 'timpani' : null].filter(Boolean); };
+  return {load, play, need, ready: name => !!(lib[name] && lib[name].length),
+    // 曲に つかう 楽器を ぜんぶ 読みこむ
+    prepare: name => Promise.all(need(name).map(load))};
+})();
+
+// ===== BGM（WebAudioでその場で鳴らす曲。楽器の音が 読みこめたら オーケストラで 鳴らす）=====
 // 記法: 音名:長さ（8分音符いくつ分）。R は休み。| は小節の区切り（読みやすさのためだけ）
 const SONGS = {
   map: {tempo: 112, loop: true, style: 'calm', drums: 'k.h.k.h.',
@@ -1094,7 +1162,7 @@ const BGM = (() => {
     grand: [[0, 6], [7, 2]],
     gallop: [[0, 1], [0, 1], [7, 1], [0, 1], [12, 1], [0, 1], [7, 1], [12, 1]],
   };
-  function build(song){
+  function build(song, orch = {}){
     const ev = {}; let len = 0;
     const put = (t, e) => (ev[t] = ev[t] || []).push(e);
     let t = 0;
@@ -1108,10 +1176,25 @@ const BGM = (() => {
       roots.forEach((r, bar) => { let x = bar * 8; for (const [iv, d] of pat) { put(x, {v: 'bass', m: midi(r) + iv, d}); x += d; } });
     }
     if (song.pad) song.pad.split(/\s+/).forEach((c, bar) => chord(c).forEach(m => put(bar * 8, {v: 'pad', m, d: 8})));
+    // 和音が 書いてない 曲は、根音から 和音（根音・5度・オクターブ）を つくる
+    const chordAt = bar => {
+      if (song.pad) { const c = song.pad.split(/\s+/)[bar]; if (c) return chord(c); }
+      if (roots[bar]) { let r = midi(roots[bar]); while (r < 55) r += 12; while (r > 66) r -= 12; return [r, r + 7, r + 12]; }
+      return null;
+    };
+    const bars = Math.ceil(len / 8);
+    if (!song.pad && orch.pad && roots.length) for (let b = 0; b < bars; b++) { const c = chordAt(b); if (c) c.forEach(m => put(b * 8, {v: 'pad', m, d: 8})); }
+    // ハープや ピアノの ポロロン（和音を 上がって 下がる）
+    if (orch.arp) for (let b = 0; b < bars; b++) { const c = chordAt(b); if (!c) continue;
+      const ns = [c[0], c[1], c[2], c[0] + 12, c[2], c[1], c[0] + 12, c[1] + 12];
+      for (let x = 0; x < 8 && b * 8 + x < len; x++) put(b * 8 + x, {v: 'arp', m: ns[x] + 12, d: 2}); }
+    // ボスの きざみ（チェロで 根音と 5度を くりかえす）
+    if (orch.ost && roots.length) for (let b = 0; b < bars; b++) { if (!roots[b]) continue; let r = midi(roots[b]); while (r < 43) r += 12; while (r > 54) r -= 12;
+      for (let x = 0; x < 8 && b * 8 + x < len; x++) put(b * 8 + x, {v: 'ost', m: x % 4 === 3 ? r + 7 : x % 2 ? r + 12 : r, d: 1}); }
     // ドラム：8もじの パターン、または 小節ごとの [小節の数, パターン] の ならび
-    const bars = song.drumBars || (song.drums ? [[len / 8, song.drums]] : []);
+    const dbars = song.drumBars || (song.drums ? [[len / 8, song.drums]] : []);
     let bar = 0;
-    for (const [n, pat] of bars) for (let k = 0; k < n; k++, bar++) for (let x = 0; x < 8; x++) {
+    for (const [n, pat] of dbars) for (let k = 0; k < n; k++, bar++) for (let x = 0; x < 8; x++) {
       const c = pat[x]; if (c === '.' || bar * 8 + x >= len) continue;
       put(bar * 8 + x, {v: c, m: roots[bar] ? midi(roots[bar]) : 50});
     }
@@ -1177,7 +1260,24 @@ const BGM = (() => {
     } else osc(wave, f, t, t + dur, g);
   }
   function voice(e, t, step, tr, out, song){
-    const ac = AC;
+    const ac = AC, o = out._orch || {};
+    // オーケストラの 楽器が 読みこめていれば そちらで 鳴らす
+    if (e.v === 'lead' && o.lead && INST.ready(o.lead)) {
+      const dur = e.d * step, m = e.m + tr, sus = ['violin', 'cello', 'french_horn', 'church_organ', 'choir_aahs', 'flute', 'trumpet'].includes(o.lead);
+      INST.play(o.lead, m, t, dur * .95, 1, out, .05, sus ? .03 : 0, sus ? .18 : .5);
+      if (o.dbl && INST.ready(o.dbl[0])) INST.play(o.dbl[0], m + 12 * o.dbl[1], t, dur * .95, .55, out, -.2, .03, .25);
+      return;
+    }
+    if (e.v === 'lead2' && o.lead2 && INST.ready(o.lead2)) { INST.play(o.lead2, e.m + tr, t, e.d * step * .95, .75, out, -.35, .02, .3); return; }
+    if (e.v === 'pad') {
+      const pads = (o.pad || []).filter(INST.ready);
+      if (pads.length) { pads.forEach((pn, i) => INST.play(pn, e.m + tr - (i ? 12 * 0 : 0), t, e.d * step, i ? .8 : 1, out, (e.m % 3 - 1) * .45, .25, .6)); return; }
+      if (o.pad) return;
+    }
+    if (e.v === 'arp') { if (o.arp && INST.ready(o.arp)) INST.play(o.arp, e.m + tr, t, e.d * step, .8, out, ((e.m % 5) - 2) * .2, 0, .8); return; }
+    if (e.v === 'ost') { if (o.ost && INST.ready(o.ost)) INST.play(o.ost, e.m + tr, t, step * .55, 1, out, .25, .005, .08); return; }
+    if (e.v === 'bass' && o.bass === 'contrabass' && INST.ready('contrabass')) { INST.play('contrabass', e.m + tr, t, Math.min(e.d * step, .9), 1, out, 0, .01, .25); return; }
+    if (e.v === 'T' && INST.ready('timpani')) { let m = e.m - 12; while (m < 36) m += 12; while (m > 58) m -= 12; INST.play('timpani', m, t, 1.2, 1, out._drum || out, 0, 0, .6); return; }
     if (e.v === 'lead' || e.v === 'lead2' || e.v === 'bass') {
       const dur = e.d * step;
       if (e.v === 'lead') tonal(song.wave || 'square', hz(e.m + tr), t, dur, song.wave === 'organ' ? .026 : song.wave === 'bell' ? .06 : .05, out, .08);
@@ -1197,7 +1297,7 @@ const BGM = (() => {
       o.connect(g); g.connect(dr); o.start(t); o.stop(t + .32);
       const c = ac.createBufferSource(), cf = ac.createBiquadFilter(), cg = ac.createGain(); c.buffer = noise; cf.type = 'highpass'; cf.frequency.value = 2500;
       cg.gain.setValueAtTime(.12, t); cg.gain.exponentialRampToValueAtTime(.001, t + .015); c.connect(cf); cf.connect(cg); cg.connect(dr); c.start(t); c.stop(t + .02);
-      if (out.gain && out._drum) { out.gain.setValueAtTime(.6, t); out.gain.linearRampToValueAtTime(1, t + .22); }
+      if (out.gain && out._drum && o.drums === 'modern') { out.gain.setValueAtTime(.65, t); out.gain.linearRampToValueAtTime(1, t + .22); }
     } else if (e.v === 'T') {
       // ティンパニ（その小節の 根音で ドーン）
       const o = ac.createOscillator(), g = ac.createGain(), f = hz(e.m - 12);
@@ -1227,10 +1327,20 @@ const BGM = (() => {
     master = null; cur = null;
   }
   let want = null;   // 鳴らしたい曲（音が出せるようになるまで覚えておく）
+  let seq = 0, preloaded = false;
   function start(name, key){
     stop();
     if (!S.bgm || !AC || AC.state !== 'running') return;
-    const song = SONGS[name], {ev, len} = build(song), [tr, dt] = key || [0, 0];
+    // 楽器の 音を まだ 読みこんでいなければ、読みこんでから 鳴らす（4びょう かかったら いつもの 音で 鳴らす）
+    const my = ++seq;
+    if (!INST.need(name).every(INST.ready) && !start.fallback) {
+      let done = false;
+      const go = fb => { if (done || my !== seq || !want || want[0] !== name) return; done = true; start.fallback = fb; start(name, key); start.fallback = false; };
+      INST.prepare(name).then(() => go(false)); setTimeout(() => go(true), 4000);
+      if (!preloaded) { preloaded = true; setTimeout(() => Object.keys(SONGS).forEach(n => INST.prepare(n)), 1500); }
+      return;
+    }
+    const song = SONGS[name], orch = INST.ready(orchOf(name).lead) ? orchOf(name) : {}, {ev, len} = build(song, orch), [tr, dt] = key || [0, 0];
     const step = 60 / (song.tempo + dt) / 2;
     master = AC.createGain(); master.gain.value = (song.gain || .55) * .9; master.connect(audio().bus);
     { const sendG = AC.createGain(); sendG.gain.value = song.echo ? .55 : .25; master.connect(sendG); sendG.connect(audio().rev); }
@@ -1240,10 +1350,11 @@ const BGM = (() => {
       dl.delayTime.value = .27; fb.gain.value = .32; wet.gain.value = .35;
       master.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(audio().bus);
     }
-    const out = AC.createGain(); out.gain.value = 1; out.connect(master); out._drum = master; let i = 0, next = AC.currentTime + .08;
+    const out = AC.createGain(); out.gain.value = 1; out.connect(master); out._orch = orch;
+    const drumG = AC.createGain(); drumG.gain.value = orch.drums === 'light' ? .45 : orch.drums === 'none' ? 0 : orch.drums === 'orch' ? .8 : 1; drumG.connect(master); out._drum = drumG; out._master = master; let i = 0, next = AC.currentTime + .08;
     cur = name + ':' + tr;
     timer = setInterval(() => {
-      if (out._drum !== master) return;
+      if (out._master !== master) return;
       while (next < AC.currentTime + .15) {
         if (i >= len) { if (!song.loop) { clearInterval(timer); timer = null; return; } i = 0; }
         for (const e of ev[i] || []) voice(e, next, step, ['lead', 'lead2', 'bass', 'pad'].includes(e.v) ? tr : 0, out, song);
@@ -1950,7 +2061,7 @@ function renderMap(){
       <button class="btn small" id="reset">さいしょから</button>
     </div>
   </section>
-  <p class="sub" style="font-size:12px">手書きの まるつけには 書きじゅんデータ <a href="https://kanjivg.tagaini.net/" style="color:var(--muted)">KanjiVG</a>（Ulrich Apel, CC BY-SA 3.0）を つかっています。こえ：VOICEVOX:満別花丸／VOICEVOX:四国めたん</p>`;
+  <p class="sub" style="font-size:12px">手書きの まるつけには 書きじゅんデータ <a href="https://kanjivg.tagaini.net/" style="color:var(--muted)">KanjiVG</a>（Ulrich Apel, CC BY-SA 3.0）を つかっています。こえ：VOICEVOX:満別花丸／VOICEVOX:四国めたん。がっきの 音：FluidR3_GM（Frank Wen, CC BY 3.0）</p>`;
   document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => { S.mode = b.dataset.v; save(); renderMap(); });
   document.querySelectorAll('#kakiSeg button').forEach(b => b.onclick = () => { S.kaki = b.dataset.v; save(); renderMap(); });
   document.querySelectorAll('.stage').forEach(b => b.onclick = () => { SE.tap(); startStage(b.dataset.s); });
