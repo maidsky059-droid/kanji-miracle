@@ -818,27 +818,101 @@ const maxMpOf = lv => Math.round((10 + lv * 1.5) * curStyle().mp);
 
 // ===== サウンド =====
 let AC = null;
+// 音の出口：ぜんぶの 音を コンプレッサーで まとめて、ホールの ひびき（リバーブ）を つける
+let FX = null;
+function audio(){
+  AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+  if (FX && FX.ac === AC) return FX;
+  const comp = AC.createDynamicsCompressor();
+  comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 4; comp.attack.value = .003; comp.release.value = .22;
+  const bus = AC.createGain(); bus.gain.value = 1; bus.connect(comp); comp.connect(AC.destination);
+  const len = Math.floor(AC.sampleRate * 2.4), ir = AC.createBuffer(2, len, AC.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.4); }
+  const conv = AC.createConvolver(); conv.buffer = ir;
+  const rev = AC.createGain(); rev.gain.value = 1; const wet = AC.createGain(); wet.gain.value = .32;
+  rev.connect(conv); conv.connect(wet); wet.connect(bus);
+  const nz = AC.createBuffer(1, AC.sampleRate * 1.5, AC.sampleRate), nd = nz.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  return FX = {ac: AC, bus, rev, noise: nz};
+}
+// ちいさな 部品：音を 出口へ（rv = ひびきの 量、pan = 左右）
+function sendOut(node, rv = .2, pan = 0){
+  const fx = audio(); let n = node;
+  if (pan && AC.createStereoPanner) { const p = AC.createStereoPanner(); p.pan.value = pan; n.connect(p); n = p; }
+  n.connect(fx.bus);
+  if (rv) { const g = AC.createGain(); g.gain.value = rv; n.connect(g); g.connect(fx.rev); }
+}
+const sfx = {
+  // ドーン（音の高さが 下がる 低い音）
+  boom(t, f0, f1, dur, vol, rv = .15){ const o = AC.createOscillator(), g = AC.createGain(); o.type = 'sine';
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur * .7);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur); o.connect(g); sendOut(g, rv); o.start(t); o.stop(t + dur + .02); },
+  // ザッ（ノイズ）。f1 を わたすと フィルターが うごく
+  noise(t, type, f0, dur, vol, f1, rv = .25, q = .8, pan = 0){ const src = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+    src.buffer = audio().noise; f.type = type; f.Q.value = q; f.frequency.setValueAtTime(f0, t); if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur); src.connect(f); f.connect(g); sendOut(g, rv, pan); src.start(t); src.stop(t + dur + .02); },
+  // ピューン（音が すべる）
+  zap(t, f0, f1, dur, vol, type = 'sawtooth', rv = .3, cut = 3500){ const o = AC.createOscillator(), f = AC.createBiquadFilter(), g = AC.createGain(); o.type = type;
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur); f.type = 'lowpass'; f.frequency.value = cut;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur); o.connect(f); f.connect(g); sendOut(g, rv); o.start(t); o.stop(t + dur + .02); },
+  // キラーン（ベルの ような 音）
+  chime(t, f, dur, vol, rv = .45, pan = 0){ const g = AC.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    for (const [m, d, v] of [[1, 0, 1], [1, 7, .6], [2.76, 0, .25], [5.4, 0, .1]]) { const o = AC.createOscillator(), gg = AC.createGain(); o.type = 'sine'; o.frequency.value = f * m; o.detune.value = d; gg.gain.value = v; o.connect(gg); gg.connect(g); o.start(t); o.stop(t + dur + .02); }
+    sendOut(g, rv, pan); },
+};
 function tone(seq, type = 'square', vol = .06){
   if (!S.sound) return;
   try {
-    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
-    let t = AC.currentTime;
+    audio(); let t = AC.currentTime;
     for (const [f, d] of seq) {
-      const o = AC.createOscillator(), g = AC.createGain();
-      o.type = type; o.frequency.value = f; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + d);
-      o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + d); t += d * .9;
+      if (type === 'triangle') sfx.chime(t, f, Math.max(.25, d * 2.2), vol * 1.3, .4);
+      else { const o = AC.createOscillator(), g = AC.createGain(), fl = AC.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = 3200;
+        o.type = type; o.frequency.value = f; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + d * 1.4);
+        o.connect(fl); fl.connect(g); sendOut(g, .3); o.start(t); o.stop(t + d * 1.5); }
+      t += d * .9;
     }
   } catch (e) {}
 }
-const SE = {
-  cast: () => tone([[1568,.04],[2093,.04],[2637,.06]], 'triangle', .05),
-  hit: () => tone([[1047,.05],[1319,.05],[1568,.12]], 'triangle', .07),
-  crit: () => tone([[1047,.04],[1319,.04],[1568,.04],[2093,.16]], 'square', .05),
-  ouch: () => tone([[300,.1],[200,.18]], 'sawtooth', .045),
-  win: () => tone([[784,.08],[988,.08],[1175,.08],[1568,.25]], 'triangle', .08),
-  lvup: () => tone([[523,.08],[659,.08],[784,.08],[1047,.08],[1319,.3]], 'triangle', .08),
-  tap: () => tone([[1319,.04]], 'triangle', .04),
-};
+// 効果音（はくりょくの ある 音を その場で 合成する）
+const SE = (() => {
+  const go = f => () => { if (!S.sound) return; try { audio(); if (AC.state !== 'running') AC.resume(); f(AC.currentTime + .01); } catch (e) {} };
+  const arp = (t, notes, step, dur, vol) => notes.forEach((f, i) => sfx.chime(t + i * step, f, dur, vol, .5, (i % 2 ? .3 : -.3)));
+  return {
+    cast: go(t => { sfx.zap(t, 500, 2600, .28, .07, 'sawtooth', .35, 5000); sfx.noise(t, 'bandpass', 600, .35, .18, 6000, .4, 1.2); arp(t + .05, [1568, 2093, 2637], .05, .35, .05); }),
+    hit: go(t => { sfx.boom(t, 190, 48, .32, .75); sfx.noise(t, 'bandpass', 2600, .16, .5, 700, .3, .9); sfx.noise(t, 'highpass', 6000, .08, .2, 0, .1);
+      arp(t + .03, [1568, 2093], .05, .4, .06); }),
+    crit: go(t => { sfx.boom(t, 140, 36, .7, .78); sfx.noise(t, 'lowpass', 3000, .5, .42, 200, .4, .7); sfx.noise(t + .02, 'highpass', 5000, 1.2, .22, 0, .6);
+      sfx.zap(t, 300, 1800, .25, .08, 'square', .4); arp(t + .06, [1047, 1319, 1568, 2093, 2637], .045, .6, .06); }),
+    ouch: go(t => { sfx.boom(t, 120, 40, .35, .7, .1); sfx.zap(t, 420, 90, .32, .12, 'sawtooth', .2, 1400); sfx.noise(t, 'lowpass', 1200, .25, .45, 150, .15); }),
+    win: go(t => { arp(t, [784, 988, 1175, 1568, 1976, 2349], .07, .9, .07); sfx.noise(t + .3, 'highpass', 6000, 1.2, .1, 0, .7); sfx.boom(t, 110, 55, .4, .5); }),
+    lvup: go(t => { sfx.zap(t, 300, 2400, .6, .06, 'sawtooth', .5, 6000); arp(t + .1, [523, 659, 784, 1047, 1319, 1568, 2093], .06, 1, .06); sfx.noise(t + .4, 'highpass', 7000, 1.4, .1, 0, .8); }),
+    tap: go(t => { sfx.chime(t, 1760, .18, .05, .15); sfx.noise(t, 'highpass', 5000, .03, .08, 0, 0); }),
+  };
+})();
+// ===== こえ（VOICEVOX で つくった みじかい セリフ）=====
+const VOICE = (() => {
+  const buf = {}, LIST = ['h_ei','h_yaa','h_sore','h_ikke','h_kya','h_itai','h_yatta','h_yattane','h_dekita','h_henshin','h_makenai',
+    'h_sp_star','h_sp_heal','h_sp_shield','h_sp_hint','h_sp_song','h_sp_time','h_ult','h_get','l_shoubu','l_kya','l_oboete','l_yaru'];
+  let loading = false, lastSrc = null, lastAt = 0;
+  function load(){
+    if (loading) return; loading = true;
+    for (const k of LIST) fetch(`assets/voice/${k}.m4a`).then(r => r.arrayBuffer()).then(a => new Promise((ok, ng) => audio().ac.decodeAudioData(a, ok, ng))).then(b => buf[k] = b).catch(() => {});
+  }
+  return {
+    load,
+    say(k){
+      if (Array.isArray(k)) k = k[Math.floor(Math.random() * k.length)];
+      if (S.voice === false || !S.sound || !buf[k]) return;
+      try {
+        const now = AC.currentTime;
+        // まえの こえと かさならないように（すぐ あとの こえは まえを 止める）
+        if (lastSrc && now - lastAt < 1.2) try { lastSrc.stop(); } catch (e) {}
+        const src = AC.createBufferSource(), g = AC.createGain(); src.buffer = buf[k]; g.gain.value = 1.5;
+        src.connect(g); sendOut(g, .12); src.start(now + .01); lastSrc = src; lastAt = now;
+      } catch (e) {}
+    },
+  };
+})();
 
 // ===== BGM（WebAudioでその場で鳴らすファミコン風の曲）=====
 // 記法: 音名:長さ（8分音符いくつ分）。R は休み。| は小節の区切り（読みやすさのためだけ）
@@ -1047,16 +1121,46 @@ const BGM = (() => {
   function ctx(){
     if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
-    if (!noise) { noise = AC.createBuffer(1, AC.sampleRate * 1.2, AC.sampleRate); const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+    noise = audio().noise; VOICE.load();
     return AC;
   }
   const osc = (type, f, t, end, g) => { const o = AC.createOscillator(); o.type = type; o.frequency.value = f; o.connect(g); o.start(t); o.stop(end); return o; };
   // がっきの 音色：square / triangle / sawtooth / bell（オルゴール）/ organ（パイプオルガン）/ flute
-  function tonal(wave, f, t, dur, vol, out){
-    const ac = AC, g = ac.createGain(); g.connect(out);
+  // パン（左右）を つけて つなぐ
+  const panned = (node, out, pan) => { if (pan && AC.createStereoPanner) { const p = AC.createStereoPanner(); p.pan.value = pan; node.connect(p); p.connect(out); } else node.connect(out); };
+  function tonal(wave, f, t, dur, vol, out, pan = 0){
+    const ac = AC, g = ac.createGain(); panned(g, out, pan);
+    if (wave === 'square' || wave === 'synth') {
+      // 今風の シンセリード：すこし ずらした ノコギリ波 2つ＋矩形波を フィルターで ととのえる。のばす 音には ビブラート
+      const fl = ac.createBiquadFilter(); fl.type = 'lowpass'; fl.Q.value = 2.5; fl.connect(g);
+      fl.frequency.setValueAtTime(Math.min(9000, f * 9), t); fl.frequency.exponentialRampToValueAtTime(Math.max(900, f * 2.6), t + Math.min(.35, dur * .8));
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol * .9, t + .006); g.gain.exponentialRampToValueAtTime(vol * .55, t + .18);
+      g.gain.setValueAtTime(vol * .55, t + dur * .85); g.gain.linearRampToValueAtTime(0, t + dur * .98 + .04);
+      const os = [['sawtooth', -9, .45], ['sawtooth', 9, .45], ['square', 0, .3]].map(([ty, dt, v]) => { const gg = ac.createGain(); gg.gain.value = v; gg.connect(fl); const o = osc(ty, f, t, t + dur + .06, gg); o.detune.value = dt; return o; });
+      if (dur > .3) { const l = ac.createOscillator(), lg = ac.createGain(); l.frequency.value = 5.8; lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(f * .007, t + .25);
+        l.connect(lg); os.forEach(o => lg.connect(o.frequency)); l.start(t); l.stop(t + dur + .06); }
+      return;
+    }
+    if (wave === 'triangle' || wave === 'keys') {
+      // エレピ（やわらかい キーボード）
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol * 1.3, t + .005); g.gain.exponentialRampToValueAtTime(vol * .35, t + Math.min(.6, dur));
+      g.gain.linearRampToValueAtTime(0, t + dur + .05);
+      osc('sine', f, t, t + dur + .06, g); const g2 = ac.createGain(); g2.gain.setValueAtTime(.4, t); g2.gain.exponentialRampToValueAtTime(.01, t + .25); g2.connect(g); osc('sine', f * 2, t, t + .3, g2);
+      const g3 = ac.createGain(); g3.gain.value = .3; g3.connect(g); osc('triangle', f, t, t + dur + .06, g3);
+      return;
+    }
+    if (wave === 'bass') {
+      // 今風の ベース：ひくい サイン波＋フィルターを かけた ノコギリ波
+      const fl = ac.createBiquadFilter(); fl.type = 'lowpass'; fl.Q.value = 3; fl.connect(g);
+      fl.frequency.setValueAtTime(900, t); fl.frequency.exponentialRampToValueAtTime(260, t + .15);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + .006); g.gain.setValueAtTime(vol * .85, t + dur * .8); g.gain.linearRampToValueAtTime(0, t + dur * .97);
+      const gs = ac.createGain(); gs.gain.value = 1.1; gs.connect(g); osc('sine', f, t, t + dur, gs);
+      const gw = ac.createGain(); gw.gain.value = .45; gw.connect(fl); osc('sawtooth', f, t, t + dur, gw);
+      return;
+    }
     if (wave === 'bell') {
-      g.gain.setValueAtTime(vol * 1.4, t); g.gain.exponentialRampToValueAtTime(.001, t + Math.max(.35, dur * 1.2));
-      osc('sine', f, t, t + dur * 1.3 + .1, g);
+      g.gain.setValueAtTime(vol * 1.4, t); g.gain.exponentialRampToValueAtTime(.001, t + Math.max(.45, dur * 1.4));
+      osc('sine', f, t, t + dur * 1.5 + .1, g); osc('sine', f, t, t + dur * 1.5 + .1, g).detune.value = 6;
       const g2 = ac.createGain(); g2.connect(out); g2.gain.setValueAtTime(vol * .35, t); g2.gain.exponentialRampToValueAtTime(.001, t + .18);
       osc('sine', f * 4, t, t + .2, g2);
       return;
@@ -1076,33 +1180,45 @@ const BGM = (() => {
     const ac = AC;
     if (e.v === 'lead' || e.v === 'lead2' || e.v === 'bass') {
       const dur = e.d * step;
-      if (e.v === 'lead') tonal(song.wave || 'square', hz(e.m + tr), t, dur, song.wave === 'organ' ? .026 : song.wave === 'bell' ? .07 : .05, out);
-      else if (e.v === 'lead2') tonal(song.wave2 || 'triangle', hz(e.m + tr), t, dur, song.wave2 === 'organ' ? .018 : .035, out);
-      else tonal(song.bassWave || 'triangle', hz(e.m + tr), t, dur, song.bassVol || .11, out);
+      if (e.v === 'lead') tonal(song.wave || 'square', hz(e.m + tr), t, dur, song.wave === 'organ' ? .026 : song.wave === 'bell' ? .06 : .05, out, .08);
+      else if (e.v === 'lead2') tonal(song.wave2 || 'triangle', hz(e.m + tr), t, dur, song.wave2 === 'organ' ? .018 : .03, out, -.3);
+      else tonal(song.bassWave && song.bassWave !== 'triangle' ? song.bassWave : 'bass', hz(e.m + tr), t, dur, (song.bassVol || .11) * .9, out);
     } else if (e.v === 'pad') {
       // コーラスのような あたたかい 和音
       const dur = e.d * step, f = ac.createBiquadFilter(), g = ac.createGain(), vol = song.padVol || .022;
-      f.type = 'lowpass'; f.frequency.value = 1300; f.connect(g); g.connect(out);
-      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + Math.min(.35, dur * .3)); g.gain.setValueAtTime(vol, t + dur * .8); g.gain.linearRampToValueAtTime(0, t + dur);
-      for (const d of [-6, 6]) { const o = osc('sawtooth', hz(e.m + tr), t, t + dur, f); o.detune.value = d; }
+      f.type = 'lowpass'; f.frequency.value = 1700; f.connect(g); g.connect(out);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol * 1.1, t + Math.min(.4, dur * .3)); g.gain.setValueAtTime(vol * 1.1, t + dur * .8); g.gain.linearRampToValueAtTime(0, t + dur);
+      for (const [d, pn] of [[-11, -.6], [-4, -.2], [4, .2], [11, .6]]) { const pg = ac.createGain(); pg.gain.value = .55; panned(pg, f, pn); const o = osc('sawtooth', hz(e.m + tr), t, t + dur, pg); o.detune.value = d; }
     } else if (e.v === 'k') {
-      const o = ac.createOscillator(), g = ac.createGain();
-      o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(40, t + .12);
-      g.gain.setValueAtTime(.22, t); g.gain.exponentialRampToValueAtTime(.001, t + .14);
-      o.connect(g); g.connect(out); o.start(t); o.stop(t + .15);
+      // キック（ドンッ）＋ ほかの 楽器を すこし へこませる（今風の うねり）
+      const dr = out._drum || out, o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.setValueAtTime(170, t); o.frequency.exponentialRampToValueAtTime(44, t + .11);
+      g.gain.setValueAtTime(.5, t); g.gain.exponentialRampToValueAtTime(.001, t + .3);
+      o.connect(g); g.connect(dr); o.start(t); o.stop(t + .32);
+      const c = ac.createBufferSource(), cf = ac.createBiquadFilter(), cg = ac.createGain(); c.buffer = noise; cf.type = 'highpass'; cf.frequency.value = 2500;
+      cg.gain.setValueAtTime(.12, t); cg.gain.exponentialRampToValueAtTime(.001, t + .015); c.connect(cf); cf.connect(cg); cg.connect(dr); c.start(t); c.stop(t + .02);
+      if (out.gain && out._drum) { out.gain.setValueAtTime(.6, t); out.gain.linearRampToValueAtTime(1, t + .22); }
     } else if (e.v === 'T') {
       // ティンパニ（その小節の 根音で ドーン）
       const o = ac.createOscillator(), g = ac.createGain(), f = hz(e.m - 12);
       o.type = 'sine'; o.frequency.setValueAtTime(f * 1.15, t); o.frequency.exponentialRampToValueAtTime(f, t + .08);
-      g.gain.setValueAtTime(.3, t); g.gain.exponentialRampToValueAtTime(.001, t + .7);
-      o.connect(g); g.connect(out); o.start(t); o.stop(t + .72);
+      g.gain.setValueAtTime(.42, t); g.gain.exponentialRampToValueAtTime(.001, t + .9);
+      o.connect(g); g.connect(out._drum || out); o.start(t); o.stop(t + .92);
+      sfx.noise(t, 'lowpass', 400, .5, .12, 0, .3);
     } else {
       const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(), kind = e.v;
       src.buffer = noise;
-      const cfg = {s: ['bandpass', 1800, .09, .12], h: ['highpass', 7000, .03, .04], o: ['highpass', 6000, .035, .18], c: ['highpass', 4500, .07, 1.1]}[kind] || ['highpass', 7000, .03, .04];
-      f.type = cfg[0]; f.frequency.value = cfg[1];
+      const cfg = {s: ['bandpass', 1900, .2, .17, 0], h: ['highpass', 8500, .04, .045, .35], o: ['highpass', 7000, .045, .22, .35], c: ['highpass', 4500, .09, 1.4, -.2]}[kind] || ['highpass', 8500, .04, .045, .35];
+      f.type = cfg[0]; f.frequency.value = cfg[1]; if (kind === 's') f.Q.value = .7;
       g.gain.setValueAtTime(cfg[2], t); g.gain.exponentialRampToValueAtTime(.001, t + cfg[3]);
-      src.connect(f); f.connect(g); g.connect(out); src.start(t); src.stop(t + cfg[3]);
+      const dr = out._drum || out;
+      src.connect(f); f.connect(g); panned(g, dr, cfg[4]); src.start(t); src.stop(t + cfg[3]);
+      if (kind === 's') {
+        // スネアの 胴の音と ひびき
+        const o = ac.createOscillator(), og = ac.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(160, t + .06);
+        og.gain.setValueAtTime(.16, t); og.gain.exponentialRampToValueAtTime(.001, t + .09); o.connect(og); og.connect(dr); o.start(t); o.stop(t + .1);
+        const rg = ac.createGain(); rg.gain.value = .5; g.connect(rg); rg.connect(audio().rev);
+      }
     }
   }
   function stop(){
@@ -1116,17 +1232,18 @@ const BGM = (() => {
     if (!S.bgm || !AC || AC.state !== 'running') return;
     const song = SONGS[name], {ev, len} = build(song), [tr, dt] = key || [0, 0];
     const step = 60 / (song.tempo + dt) / 2;
-    master = AC.createGain(); master.gain.value = song.gain || .55; master.connect(AC.destination);
+    master = AC.createGain(); master.gain.value = (song.gain || .55) * .9; master.connect(audio().bus);
+    { const sendG = AC.createGain(); sendG.gain.value = song.echo ? .55 : .25; master.connect(sendG); sendG.connect(audio().rev); }
     if (song.echo) {
       // ひろい ホールのような ひびき
       const dl = AC.createDelay(1), fb = AC.createGain(), wet = AC.createGain();
       dl.delayTime.value = .27; fb.gain.value = .32; wet.gain.value = .35;
-      master.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(AC.destination);
+      master.connect(dl); dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(audio().bus);
     }
-    const out = master; let i = 0, next = AC.currentTime + .08;
+    const out = AC.createGain(); out.gain.value = 1; out.connect(master); out._drum = master; let i = 0, next = AC.currentTime + .08;
     cur = name + ':' + tr;
     timer = setInterval(() => {
-      if (out !== master) return;
+      if (out._drum !== master) return;
       while (next < AC.currentTime + .15) {
         if (i >= len) { if (!song.loop) { clearInterval(timer); timer = null; return; } i = 0; }
         for (const e of ev[i] || []) voice(e, next, step, ['lead', 'lead2', 'bass', 'pad'].includes(e.v) ? tr : 0, out, song);
@@ -1521,7 +1638,7 @@ function rushNext(){
       if (S.weak[it.id]) { S.weak[it.id]--; if (S.weak[it.id] <= 0) delete S.weak[it.id]; }
       $('#rCombo').innerHTML = R.combo >= 2 ? `${R.combo}コンボ！ ×${mult}${R.combo % 5 === 0 ? '　<b>+3びょう！</b>' : ''}` : 'せいかい！';
       if (R.combo % 5 === 0) { document.body.insertAdjacentHTML('beforeend', `<div class="rush-pop">${R.combo} COMBO!</div>`); setTimeout(() => $('.rush-pop')?.remove(), 1000); }
-      R.combo >= 5 ? SE.crit() : SE.hit();
+      R.combo >= 5 ? SE.crit() : SE.hit(); if (R.combo % 5 === 0) VOICE.say('h_ikke');
       $('#rScore').textContent = R.score;
       setTimeout(rushNext, 260);
     } else {
@@ -1637,7 +1754,7 @@ function dojoResult(ok, it, kind, hand){
   if (ok) {
     S.total++; stampToday(); kmAdd(it); track('correct'); track(kind); if (hand) track('hand');
     if (S.weak[it.id]) { S.weak[it.id]--; if (S.weak[it.id] <= 0) delete S.weak[it.id]; }
-    SE.hit(); talk.textContent = ['いいわね！', 'その ちょうし！', 'さすが ライバル！', 'かんぺき！', 'やるじゃない！'][DJ.i % 5];
+    SE.hit(); VOICE.say(['h_dekita', 'h_yatta']); talk.textContent = ['いいわね！', 'その ちょうし！', 'さすが ライバル！', 'かんぺき！', 'やるじゃない！'][DJ.i % 5];
   } else {
     S.weak[it.id] = Math.min(3, (S.weak[it.id] || 0) + 1);
     SE.ouch(); talk.textContent = 'おしい！ こたえを よく 見て おぼえてね。';
@@ -1683,7 +1800,7 @@ function dojoEnd(){
     const exp = ok * 3; ups = addExp(exp);
     reward = `<p>じゆう けいこ　けいけんち +${exp}</p>`;
   }
-  save(); BGM.play('fanfare'); track('dojo');
+  save(); BGM.play('fanfare'); track('dojo'); setTimeout(() => VOICE.say(score >= 80 ? 'l_yaru' : 'h_makenai'), 900);
   const luna = score >= 100 ? 'ぜんもん せいかい！？ …ま、まけないんだから！' : score >= 80 ? 'なかなか やるわね。あしたも まってるわよ！' : score >= 50 ? 'まちがえた 字は にがてリストに 入れておいたわ。' : 'だいじょうぶ、まいにち つづければ ぜったい できるように なるわ！';
   overlay(`<h3>けいこ おわり！</h3>
     <div class="hanko">${hk.replace('\n', '<br>')}</div>
@@ -1828,11 +1945,12 @@ function renderMap(){
       <button class="btn small" id="weakList" ${weakN ? '' : 'disabled'}>にがてリストを 見る</button>
       <button class="btn small" id="sound">おと：${S.sound ? 'ON' : 'OFF'}</button>
       <button class="btn small" id="bgm">BGM：${S.bgm ? 'ON' : 'OFF'}</button>
+      <button class="btn small" id="voiceBtn">こえ：${S.voice !== false ? 'ON' : 'OFF'}</button>
       <button class="btn small" id="story">おはなし</button>
       <button class="btn small" id="reset">さいしょから</button>
     </div>
   </section>
-  <p class="sub" style="font-size:12px">手書きの まるつけには 書きじゅんデータ <a href="https://kanjivg.tagaini.net/" style="color:var(--muted)">KanjiVG</a>（Ulrich Apel, CC BY-SA 3.0）を つかっています。</p>`;
+  <p class="sub" style="font-size:12px">手書きの まるつけには 書きじゅんデータ <a href="https://kanjivg.tagaini.net/" style="color:var(--muted)">KanjiVG</a>（Ulrich Apel, CC BY-SA 3.0）を つかっています。こえ：VOICEVOX:満別花丸／VOICEVOX:四国めたん</p>`;
   document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => { S.mode = b.dataset.v; save(); renderMap(); });
   document.querySelectorAll('#kakiSeg button').forEach(b => b.onclick = () => { S.kaki = b.dataset.v; save(); renderMap(); });
   document.querySelectorAll('.stage').forEach(b => b.onclick = () => { SE.tap(); startStage(b.dataset.s); });
@@ -1843,6 +1961,7 @@ function renderMap(){
     setTimeout(() => document.querySelector('.sty.on')?.scrollIntoView({block: 'center'}), 50);
   });
   $('#sound').onclick = () => { S.sound = !S.sound; save(); renderMap(); };
+  $('#voiceBtn').onclick = () => { S.voice = S.voice === false; save(); renderMap(); if (S.voice) setTimeout(() => VOICE.say('h_yatta'), 100); };
   $('#bgm').onclick = () => { S.bgm = !S.bgm; save(); BGM.unlock(); BGM.refresh(); renderMap(); };
   $('#weakList').onclick = showWeakList;
   $('#story').onclick = () => showStory();
@@ -2042,7 +2161,7 @@ function spUsable(){
 function refreshBar(){ if (!B || !$('#itembar')) return; $('#itembar').outerHTML = itemBar(); bindItems(); }
 function useSp(){
   if (!spUsable()) return;
-  const sp = curStyle().sp; B.mp -= sp.mp;
+  const sp = curStyle().sp; B.mp -= sp.mp; VOICE.say('h_sp_' + sp.id);
   const ar = $('#arena'); ar && ar.insertAdjacentHTML('beforeend', `<div class="skillcall">${sp.name}！</div>`); setTimeout(() => $('.skillcall')?.remove(), 1200);
   anim($('#heroArt'), 'h-atk', 500); heroPose('atk'); setTimeout(() => heroPose(''), 600);
   const p = arenaPoints(), [color, shape] = curStyle().magic || MAGIC[heroTier(S.lv) - 1];
@@ -2171,6 +2290,7 @@ function renderBattle(){
     $('#monArt').style.visibility = 'hidden';
     $('#msg').textContent = B.mon.rival === 6 ? 'パワーアップした ルナが あらわれた！' : 'ライバルの まほう少女 ルナが あらわれた！';
     tone([[659,.1],[622,.1],[659,.1],[988,.3]], 'square', .05);
+    setTimeout(() => VOICE.say('l_shoubu'), 300);
     rivalCutin(rivalData().intro, () => {
       if (!B || !$('#monArt')) return;
       $('#monArt').style.visibility = '';
@@ -2208,6 +2328,7 @@ function renderBattle(){
 const allyOn = () => S.friend && B && !B.mon.rival && B.sid !== 'c5-2';
 function rivalSay(text, who = 'L'){
   if (!text || !$('#arena')) return;
+  if (who === 'L' && B && B.mon.rival && /きゃっ/.test(text)) setTimeout(() => VOICE.say('l_kya'), 150);
   $('.say')?.remove();
   const d = document.createElement('div'); d.className = 'say' + (who === 'H' ? ' left' : ''); d.innerHTML = `<b>${who === 'H' ? 'まほう少女' : who === 'N' ? 'ノワール' : 'ルナ'}</b><br>${text}`;
   $('#arena').appendChild(d);
@@ -2457,7 +2578,7 @@ function onCorrect(){
   anim($('#heroArt'), 'h-atk', 500);
   setTimeout(() => heroPose('atk'), 60);
   setTimeout(() => heroPose(''), 650 + (hits.length - 1) * 260);
-  SE.cast();
+  SE.cast(); VOICE.say(ult ? 'h_ult' : crit ? 'h_ikke' : ['h_ei', 'h_yaa', 'h_sore']);
   hits.forEach((h, k) => setTimeout(() => {
     if (!B || !$('#arena')) return;
     const land = () => {
@@ -2511,7 +2632,7 @@ function onWrong(self){
   const boss = B.mon.boss || B.mon.noir;
   anim($('#monArt'), boss ? 'm-atk-boss' : 'm-atk', boss ? 750 : 600);
   setTimeout(() => {
-    SE.ouch(); petFace(2, 1400);
+    SE.ouch(); petFace(2, 1400); VOICE.say(B.shield > 0 ? 'h_yaa' : ['h_kya', 'h_itai']);
     anim($('#heroArt'), 'h-hurt', 500); heroPose('dmg'); setTimeout(() => heroPose(''), 650);
     if (boss) { anim($('#arena'), 'shake-big', 550); $('#arena').insertAdjacentHTML('beforeend', '<div class="redflash"></div>'); setTimeout(() => $('.redflash')?.remove(), 500); }
     const blocked = B.shield > 0; if (blocked) B.shield--;
@@ -2532,7 +2653,7 @@ function onWrong(self){
     $('#goNext').focus();
     $('#goNext').onclick = () => {
       if (B.heroHp <= 0) {
-        BGM.play('lose');
+        BGM.play('lose'); setTimeout(() => VOICE.say('h_makenai'), 700);
         overlay(`<div>${heroImg(S.lv)}</div><h3>まけちゃった…</h3><p>でも けいけんちは そのまま！<br>もういちど へんしんしよう！</p><button class="btn gold" id="revive">もういちど へんしん！</button>`, () => {
           $('#revive').onclick = () => { closeOv(); B.heroHp = maxHpOf(S.lv); B.mon.hp = B.mon.max; B.makeup = true; renderBattle(); };
         });
@@ -2584,7 +2705,7 @@ function showLevelUp(ups, then){
       ${S.lv === 20 ? '<div>まほう少女が <b>ピンクの オーラ</b>を まとった！</div>' : ''}${S.lv === 28 ? '<div>まほう少女が <b>にじいろの オーラ</b>を まとった！</div>' : ''}
     </div>` : ''}`;
   if (newGear) {
-    BGM.play('henshin');
+    BGM.play('henshin'); setTimeout(() => VOICE.say('h_henshin'), 400);
     overlay(`<div class="henshin"><div class="rays"></div>${twinkles(12)}<img class="h-old" src="assets/girl_t${heroTier(oldLv)}.png" alt=""><img class="h-new" src="assets/girl_t${heroTier(S.lv)}.png" alt="${tierName(S.lv)}"></div>
       <h3>へんしん！</h3><p style="font-size:18px">「<b style="color:var(--pink)">${tierName(S.lv)}</b>」に<br>パワーアップした！</p>${info}
       <button class="btn gold" id="lvOk">やったー！</button>`, () => {
@@ -2598,6 +2719,7 @@ function showLevelUp(ups, then){
   });
 }
 function showAcc(i, then){
+  setTimeout(() => VOICE.say('h_get'), 300);
   tone([[1319,.08],[1568,.08],[2093,.08],[2637,.3]], 'triangle', .07);
   if (B) B.heroHp = Math.min(maxHpOf(S.lv), B.heroHp + 4);
   const next = ACCS[i + 1];
@@ -2610,7 +2732,7 @@ function showAcc(i, then){
 }
 function defeat(ups, accs){
   if (B.mon.rival) return rivalExit(ups, accs);
-  SE.win();
+  SE.win(); setTimeout(() => VOICE.say(['h_yatta', 'h_yattane']), 250);
   $('#monArt img').style.animation = 'none';
   const big = B.mon.boss || B.mon.noir;
   $('#monArt').classList.add(big ? 'die-boss' : 'die');
@@ -2637,7 +2759,7 @@ function defeat(ups, accs){
 async function rivalExit(ups, accs){
   const rd = rivalData(), last = B.mon.rival === 6, sid = B.sid, mi = B.mi;
   const alive = () => B && B.sid === sid && B.mi === mi && $('#arena');
-  SE.win();
+  SE.win(); VOICE.say(last ? 'l_kya' : 'l_oboete');
   const im = $('#monArt img'); im.style.animation = 'none';
   anim($('#monArt'), 'm-hurt', 450);
   const bonus = Math.round(last ? 60 + B.idx * 10 : 25 + B.idx * 5);
