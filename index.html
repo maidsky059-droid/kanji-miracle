@@ -261,6 +261,26 @@ h1 small{display:block;font-size:.5em;color:var(--gold);text-shadow:1px 1px 0 #0
 .sty.on{border-color:var(--pink);box-shadow:0 0 10px rgba(255,143,200,.6)}
 .sty.lock{opacity:.6}
 .sty.lock img{filter:brightness(0) opacity(.45)}
+.dojo{border-color:#d9a441;background:linear-gradient(180deg,#2a1a3f,#1d1230)}
+.dojo .dtop{display:flex;gap:10px;align-items:center}
+.dojo .dtop img{width:64px;height:auto;image-rendering:pixelated}
+.dojo .rank{font-size:20px;color:var(--gold);font-weight:bold}
+.dojo .lock{color:var(--muted);font-size:14px}
+.dcal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.dcal span{height:46px;border-radius:8px;background:#140a24;border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;color:var(--muted);line-height:1.1}
+.dcal span.on{background:#fff4e0;color:#c0392b;border-color:#d9a441;font-weight:bold}
+.dcal span.on b{font-size:14px}
+.dcal span.td{outline:2px solid var(--pink)}
+.hanko{display:inline-block;border:4px solid #e0403a;color:#e0403a;border-radius:50%;width:120px;height:120px;line-height:1.15;font-weight:bold;font-size:22px;background:#fff8ef;transform:rotate(-8deg);display:flex;align-items:center;justify-content:center;margin:6px auto;animation:hankoIn .35s ease-out}
+@keyframes hankoIn{from{transform:scale(2.2) rotate(-8deg);opacity:0}to{transform:scale(1) rotate(-8deg);opacity:1}}
+.dprog{display:flex;gap:4px;justify-content:center}
+.dprog i{width:18px;height:18px;border-radius:50%;background:#140a24;border:2px solid var(--line)}
+.dprog i.ok{background:var(--gold);border-color:var(--gold)}
+.dprog i.ng{background:#5a2a3a;border-color:var(--red)}
+.dprog i.now{border-color:var(--pink);box-shadow:0 0 6px var(--pink)}
+.dojo-talk{display:flex;gap:8px;align-items:flex-end}
+.dojo-talk img{width:56px!important;height:auto!important;max-height:none!important;flex:none;image-rendering:pixelated}
+.dojo-talk .bubble{text-align:left}
 .mapnav{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .mapnav button{display:flex;flex-direction:column;align-items:center;gap:4px;background:#1d0f33;border:2px solid var(--line);border-radius:14px;padding:10px 4px;font-size:14px;line-height:1.3;min-width:0}
 .mapnav button img{width:48px;height:48px;object-fit:contain}
@@ -725,7 +745,7 @@ CHAPTERS.forEach((ch, ci) => {
 // ===== セーブ =====
 const DEF = {lv:1, exp:0, cleared:{}, beaten:{}, weak:{}, mode:'mix', kaki:'choice', style:'miracle', sound:true, bgm:true, total:0, intro:false,
   login:{last:'', streak:0, days:0}, daily:null, items:{potion:0, seed:0}, stamps:{},
-  km:{}, shards:0, stickers:{}, rushBest:0, rushPlays:0};
+  km:{}, shards:0, stickers:{}, rushBest:0, rushPlays:0, dojo:{days:{}, streak:0, last:'', open:false}};
 let S = JSON.parse(JSON.stringify(DEF));
 try { const d = JSON.parse(localStorage.getItem('kanjimagical2') || 'null'); if (d) S = Object.assign(JSON.parse(JSON.stringify(DEF)), d); } catch (e) {}
 // Macにもセーブを預ける（アドレスが変わっても記録がもどる）
@@ -907,6 +927,12 @@ const SONGS = {
     lead: `A5:2 C6:2 B5:2 G5:2 | A5:2 E5:2 A4:4 | F5:2 A5:2 G5:2 E5:2 | D5:2 E5:2 C5:4 |
            D5:2 F5:2 E5:2 A5:2 | G5:2 F5:2 E5:4 | F5:2 E5:2 D5:2 B4:2 | A4:6 R:2`,
     roots: 'A2 A2 F2 C3 D3 C3 E2 A2', pad: 'Am Am F C Dm C E Am', padVol: .02, echo: true},
+
+  dojo: {tempo: 96, loop: true, wave: 'bell', style: 'calm', drums: 'k..k..h.',   // かん字どうじょう：わふう
+    lead: `D5:2 E5:1 G5:1 A5:2 G5:2 | E5:2 D5:2 E5:4 | A5:2 C6:1 A5:1 G5:2 E5:2 | G5:2 A5:2 D5:4 |
+           D6:2 C6:1 A5:1 G5:2 A5:2 | C6:2 A5:2 G5:4 | E5:2 G5:1 E5:1 D5:2 C5:2 | D5:6 R:2`,
+    lead2: `A4:4 B4:4 | C5:4 A4:4 | E5:4 C5:4 | D5:4 A4:4 | F5:4 E5:4 | E5:4 D5:4 | C5:4 A4:4 | A4:8`, wave2: 'flute',
+    roots: 'D3 C3 A2 D3 F2 A2 C3 D3', pad: 'Dm C Am Dm F Am C Dm', padVol: .016, echo: true},
 
   // ---- ボス曲（章ごと）----
   boss_c0: {tempo: 170, loop: true, wave: 'square', style: 'drive', drums: 'khskkhsk',   // ピエロ：サーカスのように
@@ -1505,6 +1531,170 @@ function rushNext(){
     save();
   });
 }
+// ===== かん字どうじょう（ゲームクリアのあと、まいにち 10もんの けいこ）=====
+const DOJO_N = 10;
+const DOJO_RANKS = ['10きゅう','9きゅう','8きゅう','7きゅう','6きゅう','5きゅう','4きゅう','3きゅう','2きゅう','1きゅう','しょだん','にだん','さんだん','よんだん','ごだん','かん字めいじん'];
+const dojoOpen = () => !!S.cleared['c5-2'];
+const dojoDays = () => Object.keys(S.dojo.days).length;
+const dojoRank = (n = dojoDays()) => DOJO_RANKS[Math.min(DOJO_RANKS.length - 1, Math.floor(n / 3))];
+const dojoNext = () => { const n = dojoDays(), i = Math.floor(n / 3); return i >= DOJO_RANKS.length - 1 ? 0 : (i + 1) * 3 - n; };
+const HANKO = sc => sc >= 100 ? ['はなまる', '💮'] : sc >= 80 ? ['よく\nできました', '◎'] : sc >= 50 ? ['がんばり\nました', '○'] : ['また\nあした', '△'];
+function seededRand(seed){ let h = 2166136261; for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  return () => { h += 0x6D2B79F5; let t = h; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+// きょうの おだい：にがて・まだ あまり 正かいしていない かん字を 中心に、日づけで きまる 10もん
+function dojoItems(practice){
+  const rnd = practice ? Math.random : seededRand('dojo' + today());
+  const pool = ALL.slice(), out = [];
+  const w = it => 1 + (S.weak[it.id] || 0) * 3 + 4 / (1 + Math.min(...kanjiOf(it).map(c => S.km[c] || 0)));
+  while (out.length < DOJO_N && pool.length) {
+    const ws = pool.map(w); let r = rnd() * ws.reduce((a, b) => a + b, 0), k = 0;
+    for (; k < pool.length - 1; k++) { r -= ws[k]; if (r <= 0) break; }
+    const it = pool.splice(k, 1)[0];
+    if (out.some(o => o.target === it.target)) continue;
+    out.push(it);
+  }
+  // 3もんは よみ、のこりは 手で 書く けいこ
+  return out.map((it, i) => ({it, kind: i < 3 ? 'yomi' : 'kaki'}));
+}
+function dojoPanel(){
+  if (!dojoOpen()) return `<section class="panel dojo"><h2>かん字どうじょう</h2>
+    <div class="dtop"><img src="assets/rival_friend_1_l.png" alt=""><div class="lock">🔒 さいごの わるもの ノワールを たおすと ひらくよ。<br>ひらいたら まいにち ルナと かん字の けいこが できる！</div></div></section>`;
+  const d = today(), done = S.dojo.days[d] != null;
+  const cal = [];
+  for (let i = 13; i >= 0; i--) {
+    const dt = new Date(); dt.setDate(dt.getDate() - i); const k = ymd(dt), sc = S.dojo.days[k];
+    cal.push(`<span class="${sc != null ? 'on' : ''} ${i === 0 ? 'td' : ''}">${dt.getMonth() + 1}/${dt.getDate()}${sc != null ? `<b>${HANKO(sc)[1]}</b>` : ''}</span>`);
+  }
+  const nx = dojoNext();
+  return `<section class="panel dojo"><h2>かん字どうじょう</h2>
+    <div class="dtop"><img src="assets/rival_friend_1_l.png" alt="ルナ"><div>
+      <div class="rank">${dojoRank()}</div>
+      <div class="small-num">けいこ ${dojoDays()}日・れんぞく ${S.dojo.streak || 0}日${nx ? `・あと${nx}日で ${DOJO_RANKS[DOJO_RANKS.indexOf(dojoRank()) + 1]}` : ''}</div>
+      <div class="small-num" style="color:var(--pink)">${done ? `きょうの けいこは おわり！（${S.dojo.days[d]}てん）` : 'きょうの けいこ まだだよ！ 10もん やってみよう'}</div>
+    </div></div>
+    <div class="dcal">${cal.join('')}</div>
+    <div class="row"><button class="btn gold ${done ? '' : 'hot'}" id="dojoGo">${done ? 'じゆう けいこ（なんども できる）' : 'きょうの けいこを はじめる'}</button></div>
+  </section>`;
+}
+function bindDojo(){ const b = $('#dojoGo'); if (b) b.onclick = () => { SE.tap(); startDojo(S.dojo.days[today()] != null); }; }
+let DJ = null;
+function startDojo(practice){
+  B = null; R = null;
+  DJ = {practice, qs: dojoItems(practice), i: 0, res: [], busy: false};
+  BGM.play('dojo');
+  const lines = practice ? ['じゆう けいこね！ なんかいでも つきあうわよ。'] : S.dojo.streak >= 2 ? [`${S.dojo.streak}日 れんぞく！ やるじゃない。きょうも いくわよ！`] : ['きょうの おだいは 10もん。にがてな 字も でるからね！'];
+  $('#app').innerHTML = `
+    <div class="top"><button class="btn small" id="djBack">◀ やめる</button><div class="area">かん字どうじょう ${practice ? '（じゆう けいこ）' : '（きょうの おだい）'}</div><div class="small-num">${dojoRank()}</div></div>
+    <section class="panel">
+      <div class="dojo-talk"><img src="assets/rival_friend_1_l.png" alt="ルナ"><div class="bubble" id="djTalk">${lines[0]}</div></div>
+      <div class="dprog" id="djProg"></div>
+    </section>
+    <section class="sheet" id="sheet"></section>`;
+  $('#djBack').onclick = () => { DJ = null; renderMap(); };
+  dojoAsk();
+}
+function dojoProg(){ $('#djProg').innerHTML = DJ.qs.map((q, i) => `<i class="${DJ.res[i] === true ? 'ok' : DJ.res[i] === false ? 'ng' : i === DJ.i ? 'now' : ''}"></i>`).join(''); }
+function dojoAsk(){
+  if (!DJ) return;
+  if (DJ.i >= DJ.qs.length) return dojoEnd();
+  DJ.busy = false; dojoProg();
+  const {it, kind} = DJ.qs[DJ.i];
+  const hand = kind === 'kaki' && RECOG.ready() && kanjiOf(it).length && [...it.target].every(RECOG.has);
+  const sentence = kind === 'yomi' ? `${esc(it.pre)}<span class="t">${esc(it.target)}</span>${esc(it.post)}` : `${esc(it.pre)}<span class="h">${esc(it.yomi)}</span>${esc(it.post)}`;
+  const head = `<div class="qhead"><span class="tag ${kind}">${kind === 'yomi' ? 'よみ：あかい せんの よみかたは？' : hand ? 'かき：□の かん字を 書こう' : 'かき：□を かん字で かくと？'}</span><span class="streak">${DJ.i + 1} / ${DJ.qs.length}</span></div>`;
+  if (!hand) {
+    const choices = kind === 'yomi' ? yomiChoices(it) : kakiChoices(it), correct = kind === 'yomi' ? it.yomi : it.target;
+    $('#sheet').innerHTML = `${head}<div class="sentence">${sentence}</div><div class="choices">${choices.map(c => `<button class="choice" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
+    document.querySelectorAll('.choice').forEach(b => b.onclick = () => {
+      if (DJ.busy) return; DJ.busy = true;
+      const ok = b.dataset.v === correct;
+      document.querySelectorAll('.choice').forEach(x => { x.disabled = true; if (x.dataset.v === correct) x.classList.add('ok'); });
+      if (!ok) b.classList.add('ng');
+      dojoResult(ok, it, kind);
+    });
+  } else {
+    const n = [...it.target].length;
+    $('#sheet').innerHTML = `${head}<div class="sentence">${sentence}</div>
+      <div class="canvas-wrap"><canvas class="pad" id="pad"></canvas></div>
+      <div class="row" id="handBtns"><button class="btn" id="clr">けす</button><button class="btn gold" id="reveal">こたえあわせ</button></div>`;
+    setupPad(n);
+    $('#clr').onclick = () => setupPad(n);
+    $('#reveal').onclick = () => {
+      if (DJ.busy) return;
+      const r = judgePad(it);
+      if (r.empty) { $('#judgeMsg')?.remove(); $('#handBtns').insertAdjacentHTML('beforebegin', '<div class="judge" id="judgeMsg">マスに かん字を 書いてから おしてね</div>'); return; }
+      DJ.busy = true; $('#pad').style.pointerEvents = 'none'; $('#judgeMsg')?.remove();
+      $('#handBtns').outerHTML = `<div class="judge ${r.ok ? 'ok' : 'ng'}" id="judgeMsg"><b>${r.ok ? '◯ せいかい！' : '✕ ざんねん'}</b>${r.notes.length ? '<br>' + r.notes.join('<br>') : ''}</div>`;
+      dojoResult(r.ok, it, kind, true);
+    };
+  }
+}
+function dojoResult(ok, it, kind, hand){
+  DJ.res[DJ.i] = ok;
+  const talk = $('#djTalk');
+  if (ok) {
+    S.total++; stampToday(); kmAdd(it); track('correct'); track(kind); if (hand) track('hand');
+    if (S.weak[it.id]) { S.weak[it.id]--; if (S.weak[it.id] <= 0) delete S.weak[it.id]; }
+    SE.hit(); talk.textContent = ['いいわね！', 'その ちょうし！', 'さすが ライバル！', 'かんぺき！', 'やるじゃない！'][DJ.i % 5];
+  } else {
+    S.weak[it.id] = Math.min(3, (S.weak[it.id] || 0) + 1);
+    SE.ouch(); talk.textContent = 'おしい！ こたえを よく 見て おぼえてね。';
+  }
+  save(); dojoProg();
+  const ans = `<div class="answer">こたえ：${esc(it.pre)}<b>${esc(it.target)}</b>${esc(it.post)}（${esc(it.yomi)}）</div>`;
+  const row = `<div class="row">${!ok && hand ? '<button class="btn" id="djRetry">もういちど 書く</button>' : ''}<button class="btn gold" id="djNext">${DJ.i + 1 >= DJ.qs.length ? 'けっかを 見る' : 'つぎへ ▶'}</button></div>`;
+  $('#sheet').insertAdjacentHTML('beforeend', ans + row);
+  const next = () => { DJ.i++; dojoAsk(); };
+  $('#djNext').onclick = () => { SE.tap(); next(); };
+  // まちがえた字は、こたえを 見ながら もういちど 書いて れんしゅう（てんすうは そのまま）
+  const rt = $('#djRetry');
+  if (rt) rt.onclick = () => {
+    const n = [...it.target].length;
+    document.querySelectorAll('#sheet .answer, #sheet .row, #judgeMsg').forEach(x => x.remove());
+    $('#sheet').insertAdjacentHTML('beforeend', `<div class="answer">おてほん：<b style="font-size:40px">${esc(it.target)}</b></div>
+      <div class="row" id="handBtns"><button class="btn" id="clr">けす</button><button class="btn gold" id="djRe2">書けた！</button></div>`);
+    setupPad(n); $('#clr').onclick = () => setupPad(n);
+    $('#djRe2').onclick = () => {
+      const r = judgePad(it); if (r.empty) return;
+      $('#pad').style.pointerEvents = 'none';
+      $('#handBtns').outerHTML = `<div class="judge ${r.ok ? 'ok' : 'ng'}"><b>${r.ok ? '◯ おぼえたね！' : 'もう すこし！ あしたも がんばろう'}</b></div><div class="row"><button class="btn gold" id="djNext">${DJ.i + 1 >= DJ.qs.length ? 'けっかを 見る' : 'つぎへ ▶'}</button></div>`;
+      if (r.ok) SE.hit();
+      $('#djNext').onclick = () => { SE.tap(); next(); };
+    };
+  };
+}
+function dojoEnd(){
+  const dj = DJ; DJ = null;
+  const ok = dj.res.filter(x => x).length, score = ok * 10, d = today();
+  const [hk] = HANKO(score);
+  let reward = '', ups = [];
+  if (!dj.practice && S.dojo.days[d] == null) {
+    const prevRank = dojoRank();
+    S.dojo.streak = S.dojo.last && dayDiff(S.dojo.last, d) === 1 ? (S.dojo.streak || 0) + 1 : 1;
+    S.dojo.last = d; S.dojo.days[d] = score;
+    const exp = 40 + ok * 6, shards = 5 + (score >= 100 ? 5 : 0) + (S.dojo.streak % 7 === 0 ? 10 : 0);
+    ups = addExp(exp); S.shards = (S.shards || 0) + shards;
+    if (S.dojo.streak % 7 === 0) S.items.potion = (S.items.potion || 0) + 1;
+    reward = `<p>けいけんち +${exp}　${SHARD_ICON} ほしのかけら +${shards}${S.dojo.streak % 7 === 0 ? '<br><b style="color:var(--pink)">7日 れんぞく ボーナス！ ハートキャンディ +1</b>' : ''}</p>
+      <p>れんぞく <b style="color:var(--gold)">${S.dojo.streak}日</b>　だんい：<b style="color:var(--gold)">${dojoRank()}</b>${dojoRank() !== prevRank ? '<br><b style="color:var(--pink)">だんいが 上がった！</b>' : ''}</p>`;
+  } else {
+    const exp = ok * 3; ups = addExp(exp);
+    reward = `<p>じゆう けいこ　けいけんち +${exp}</p>`;
+  }
+  save(); BGM.play('fanfare'); track('dojo');
+  const luna = score >= 100 ? 'ぜんもん せいかい！？ …ま、まけないんだから！' : score >= 80 ? 'なかなか やるわね。あしたも まってるわよ！' : score >= 50 ? 'まちがえた 字は にがてリストに 入れておいたわ。' : 'だいじょうぶ、まいにち つづければ ぜったい できるように なるわ！';
+  overlay(`<h3>けいこ おわり！</h3>
+    <div class="hanko">${hk.replace('\n', '<br>')}</div>
+    <p style="font-size:24px">${score} てん <small style="color:var(--muted)">（${ok} / ${dj.qs.length}もん）</small></p>
+    ${reward}
+    <div class="dojo-talk" style="justify-content:center"><img src="assets/rival_friend_1_l.png" alt="ルナ"><div class="bubble">${luna}</div></div>
+    <div class="row"><button class="btn gold" id="djAgain">じゆう けいこ</button><button class="btn" id="djMap">マップへ</button></div>`, () => {
+    const go = f => () => { closeOv(); ups.length ? showLevelUp(ups, f) : f(); };
+    $('#djAgain').onclick = go(() => startDojo(true));
+    $('#djMap').onclick = go(renderMap);
+  });
+}
+
 function rushEnd(){
   clearInterval(R.timer);
   $('.rush-pop')?.remove();
@@ -1562,6 +1752,7 @@ function renderMap(){
       <div class="petline">${petImg(1)}<div class="bubble">${petSays()}</div></div>
     </div>
   </section>
+  ${dojoPanel()}
   <section class="panel">
     <h2>あそびの へや <span class="shardbar" style="float:right">${SHARD_ICON} ${S.shards || 0}こ</span></h2>
     <div class="mapnav">
@@ -1656,6 +1847,7 @@ function renderMap(){
   $('#goRush').onclick = () => { SE.tap(); startRush(); };
   $('#goZukan').onclick = () => { SE.tap(); showZukan(); };
   $('#goCap').onclick = () => { SE.tap(); showCapsule(); };
+  bindDojo();
   $('#reset').onclick = () => overlay(`<h3>さいしょから？</h3><p>レベルと きろくが ぜんぶ きえます。</p>
     <div class="row"><button class="btn" data-close>やめる</button><button class="btn gold" id="doReset">けす</button></div>`, () => {
       $('#doReset').onclick = () => { S = Object.assign(JSON.parse(JSON.stringify(DEF)), {sound:S.sound, bgm:S.bgm, intro:true}); save(true); closeOv(); renderMap(); };
@@ -2077,11 +2269,9 @@ function askNext(){
     };
   }
 }
-// 書いた画を正しい漢字・似た漢字と比べて自動で丸つけ
-function autoGrade(it){
+// 手書きのマスを、正しい漢字と くらべて まるつけする
+function judgePad(it){
   const cv = $('#pad'), strokes = cv._strokes || [];
-  if (!strokes.length) { $('#judgeMsg')?.remove(); $('#handBtns').insertAdjacentHTML('beforebegin', '<div class="judge" id="judgeMsg">マスに かん字を 書いてから おしてね</div>'); return; }
-  if (B.busy) return; B.busy = true;
   const chars = [...it.target], n = chars.length, box = cv._box;
   // 画の真ん中の位置で、どのマスに書いた画かを決める
   const cells = chars.map(() => []);
@@ -2100,6 +2290,14 @@ function autoGrade(it){
     if (r.best && r.best !== chars[i]) return `${head}「${esc(r.best)}」に見えるよ`;
     return `${head}形をよく見てもういちど`;
   }).filter(Boolean);
+  return {ok, notes, empty: !strokes.length};
+}
+// 書いた画を正しい漢字・似た漢字と比べて自動で丸つけ
+function autoGrade(it){
+  const cv = $('#pad'), strokes = cv._strokes || [];
+  if (!strokes.length) { $('#judgeMsg')?.remove(); $('#handBtns').insertAdjacentHTML('beforebegin', '<div class="judge" id="judgeMsg">マスに かん字を 書いてから おしてね</div>'); return; }
+  if (B.busy) return; B.busy = true;
+  const {ok, notes} = judgePad(it);
   cv.style.pointerEvents = 'none';
   $('#judgeMsg')?.remove();
   $('#handBtns').outerHTML = `<div class="judge ${ok ? 'ok' : 'ng'}" id="judgeMsg"><b>${ok ? '◯ せいかい！' : '✕ ざんねん'}</b>${notes.length ? '<br>' + notes.join('<br>') : ''}</div>`;
